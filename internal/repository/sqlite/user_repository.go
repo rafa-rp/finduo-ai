@@ -1,10 +1,12 @@
-package postgres
+package sqlite
 
 import (
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/google/uuid"
 
 	"finduo-ai/internal/domain"
 )
@@ -13,7 +15,7 @@ type UserRepository struct {
 	db *DB
 }
 
-// NewUserRepository creates a new PostgreSQL implementation of UserRepository.
+// NewUserRepository creates a new SQLite implementation of UserRepository.
 func NewUserRepository(db *DB) *UserRepository {
 	return &UserRepository{db: db}
 }
@@ -45,26 +47,19 @@ func (r *UserRepository) List(ctx context.Context) ([]domain.User, error) {
 // Save inserts or updates a user in the database.
 func (r *UserRepository) Save(ctx context.Context, user *domain.User) error {
 	if user.ID == "" {
-		// Insert and let Postgres generate the UUID
-		query := "INSERT INTO users (name, salary) VALUES ($1, $2) RETURNING id"
-		err := r.db.QueryRowContext(ctx, query, user.Name, user.Salary).Scan(&user.ID)
-		if err != nil {
-			return fmt.Errorf("failed to insert user: %w", err)
-		}
-		return nil
+		user.ID = uuid.New().String()
 	}
 
-	// Upsert if ID is provided
 	query := `
 		INSERT INTO users (id, name, salary)
-		VALUES ($1, $2, $3)
+		VALUES (?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
-			name = EXCLUDED.name,
-			salary = EXCLUDED.salary
+			name = excluded.name,
+			salary = excluded.salary
 	`
 	_, err := r.db.ExecContext(ctx, query, user.ID, user.Name, user.Salary)
 	if err != nil {
-		return fmt.Errorf("failed to upsert user: %w", err)
+		return fmt.Errorf("failed to save user: %w", err)
 	}
 
 	return nil
@@ -72,7 +67,7 @@ func (r *UserRepository) Save(ctx context.Context, user *domain.User) error {
 
 // Get retrieves a specific user by ID.
 func (r *UserRepository) Get(ctx context.Context, id string) (*domain.User, error) {
-	query := "SELECT id, name, salary FROM users WHERE id = $1"
+	query := "SELECT id, name, salary FROM users WHERE id = ?"
 	var u domain.User
 	err := r.db.QueryRowContext(ctx, query, id).Scan(&u.ID, &u.Name, &u.Salary)
 	if err != nil {

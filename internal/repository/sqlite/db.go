@@ -1,4 +1,4 @@
-package postgres
+package sqlite
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/lib/pq"
+	_ "modernc.org/sqlite"
 )
 
 // DB wraps the standard *sql.DB and manages database connections.
@@ -14,16 +14,15 @@ type DB struct {
 	*sql.DB
 }
 
-// Connect establishes a connection pool to the PostgreSQL database.
-func Connect(connStr string) (*DB, error) {
-	db, err := sql.Open("postgres", connStr)
+// Connect establishes a connection to the SQLite database.
+func Connect(dbPath string) (*DB, error) {
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
 
-	// Connection pool configurations
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(25)
+	// SQLite connection settings (limit open conns for thread safety with SQLite file access)
+	db.SetMaxOpenConns(1)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	// Verify the connection is active
@@ -32,7 +31,13 @@ func Connect(connStr string) (*DB, error) {
 
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+		return nil, fmt.Errorf("failed to ping sqlite database: %w", err)
+	}
+
+	// Enable foreign key constraints in SQLite
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON;"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 
 	return &DB{db}, nil

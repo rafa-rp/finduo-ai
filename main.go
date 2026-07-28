@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"finduo-ai/internal/handler"
-	"finduo-ai/internal/repository/postgres"
+	"finduo-ai/internal/repository/sqlite"
 )
 
 // loadEnv reads a local .env file and sets environment variables manually
@@ -78,43 +78,41 @@ func main() {
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		log.Println("WARNING: DATABASE_URL is not set. Please set it in your .env file.")
+		dbURL = "finduo.db"
+		log.Println("INFO: DATABASE_URL is not set. Defaulting to local SQLite file 'finduo.db'.")
 	}
 
 	log.Printf("Starting Finduo AI Backend on port %s...", port)
 
-	var db *postgres.DB
+	var db *sqlite.DB
 	var err error
 
-	if dbURL != "" {
-		db, err = postgres.Connect(dbURL)
-		if err != nil {
-			log.Printf("WARNING: Could not connect to database: %v", err)
-			log.Println("Database operations will fail until PostgreSQL is running.")
-		} else {
-			defer db.Close()
-			log.Println("Successfully connected to PostgreSQL database.")
+	db, err = sqlite.Connect(dbURL)
+	if err != nil {
+		log.Printf("WARNING: Could not connect to SQLite database: %v", err)
+	} else {
+		defer db.Close()
+		log.Println("Successfully connected to SQLite database.")
 
-			// Initialize DB tables automatically on startup
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			err = db.InitSchema(ctx)
-			cancel()
-			if err != nil {
-				log.Fatalf("CRITICAL: Failed to initialize schema: %v", err)
-			}
-			log.Println("Database schema checked/initialized successfully.")
+		// Initialize DB tables automatically on startup
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err = db.InitSchema(ctx)
+		cancel()
+		if err != nil {
+			log.Fatalf("CRITICAL: Failed to initialize schema: %v", err)
 		}
+		log.Println("Database schema checked/initialized successfully.")
 	}
 
 	// Setup Repositories (will handle null DB gracefully or return error when called)
-	var userRepo *postgres.UserRepository
-	var expenseRepo *postgres.ExpenseRepository
-	var settlementRepo *postgres.SettlementRepository
+	var userRepo *sqlite.UserRepository
+	var expenseRepo *sqlite.ExpenseRepository
+	var settlementRepo *sqlite.SettlementRepository
 
 	if db != nil {
-		userRepo = postgres.NewUserRepository(db)
-		expenseRepo = postgres.NewExpenseRepository(db)
-		settlementRepo = postgres.NewSettlementRepository(db)
+		userRepo = sqlite.NewUserRepository(db)
+		expenseRepo = sqlite.NewExpenseRepository(db)
+		settlementRepo = sqlite.NewSettlementRepository(db)
 	}
 
 	// Router setup using Go 1.22+ new enhanced ServeMux pattern matching
@@ -149,7 +147,7 @@ func main() {
 		dbFallback := func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprint(w, `{"error":"Database is offline. Please check your PostgreSQL connection."}`)
+			fmt.Fprint(w, `{"error":"Database is offline. Please check your SQLite connection."}`)
 		}
 		mux.HandleFunc("/api/", dbFallback)
 	}

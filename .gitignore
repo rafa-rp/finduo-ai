@@ -40,3 +40,9 @@ web/.next/
 web/out/
 web/build/
 
+# Database files
+*.db
+*.sqlite
+*.db-journal
+*.db-wal
+*.db-shm

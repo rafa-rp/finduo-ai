@@ -30,3 +30,13 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# MCP Configuration / Agent settings
+.agents/
+
+# Frontend (Web)
+web/node_modules/
+web/.next/
+web/out/
+web/build/
+

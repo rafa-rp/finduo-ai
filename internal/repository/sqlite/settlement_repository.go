@@ -1,4 +1,4 @@
-package postgres
+package sqlite
 
 import (
 	"context"
@@ -13,7 +13,7 @@ type SettlementRepository struct {
 	db *DB
 }
 
-// NewSettlementRepository creates a new PostgreSQL implementation of MonthlySettlementRepository.
+// NewSettlementRepository creates a new SQLite implementation of MonthlySettlementRepository.
 func NewSettlementRepository(db *DB) *SettlementRepository {
 	return &SettlementRepository{db: db}
 }
@@ -21,7 +21,7 @@ func NewSettlementRepository(db *DB) *SettlementRepository {
 // Get retrieves the settlement status for a specific month.
 // If it does not exist in the database, it returns a default unsettled record.
 func (r *SettlementRepository) Get(ctx context.Context, year int, month int) (*domain.MonthlySettlement, error) {
-	query := "SELECT year, month, is_settled, settled_by_id FROM monthly_settlements WHERE year = $1 AND month = $2"
+	query := "SELECT year, month, is_settled, settled_by_id FROM monthly_settlements WHERE year = ? AND month = ?"
 
 	var set domain.MonthlySettlement
 	err := r.db.QueryRowContext(ctx, query, year, month).Scan(&set.Year, &set.Month, &set.IsSettled, &set.SettledByID)
@@ -46,10 +46,10 @@ func (r *SettlementRepository) Get(ctx context.Context, year int, month int) (*d
 func (r *SettlementRepository) Save(ctx context.Context, set *domain.MonthlySettlement) error {
 	query := `
 		INSERT INTO monthly_settlements (year, month, is_settled, settled_by_id)
-		VALUES ($1, $2, $3, $4)
+		VALUES (?, ?, ?, ?)
 		ON CONFLICT (year, month) DO UPDATE SET
-			is_settled = EXCLUDED.is_settled,
-			settled_by_id = EXCLUDED.settled_by_id
+			is_settled = excluded.is_settled,
+			settled_by_id = excluded.settled_by_id
 	`
 	_, err := r.db.ExecContext(ctx, query, set.Year, set.Month, set.IsSettled, set.SettledByID)
 	if err != nil {

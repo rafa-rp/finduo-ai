@@ -29,3 +29,5 @@ This file serves as a guide for instructions and configurations for AI agents (s
 2. **File Modification Preference**: Prefer editing existing files rather than creating new files.
 3. **Dependencies**: Do not install any new package or library without asking for permission first.
 4. **Out-of-scope Bugs**: If you find any bug or issue outside the scope of your current task, point it out to the user but do not fix it without explicit approval.
+5. **Code Review & Approval**: Always present the code diff or new code contents in the output so the user can review and approve changes prior to committing.
+

@@ -33,3 +33,10 @@ go.work.sum
 
 # MCP Configuration / Agent settings
 .agents/
+
+# Frontend (Web)
+web/node_modules/
+web/.next/
+web/out/
+web/build/
+

@@ -2,8 +2,19 @@ package domain
 
 import "context"
 
-// Valid categories as specified by the user
+// Valid categories in English standard
 const (
+	CategoryFood          = "food"
+	CategoryHousing       = "housing"
+	CategoryTransport     = "transport"
+	CategoryEntertainment = "entertainment"
+	CategoryUtilities     = "utilities"
+	CategoryPet           = "pet"
+	CategoryTravel        = "travel"
+	CategoryHealth        = "health"
+	CategoryOther         = "other"
+
+	// Legacy Portuguese category constants for backwards compatibility
 	CategoryCasa    = "Casa"
 	CategoryCarro   = "Carro"
 	CategoryDog     = "Dog"
@@ -14,10 +25,12 @@ const (
 	CategoryOutros  = "Outros"
 )
 
-// IsValidCategory checks if a given category name is valid.
+// IsValidCategory checks if a given category name is valid (supports English and Portuguese names).
 func IsValidCategory(cat string) bool {
 	switch cat {
-	case CategoryCasa, CategoryCarro, CategoryDog, CategoryMercado, CategoryViagem, CategoryLazer, CategorySaude, CategoryOutros:
+	case CategoryFood, CategoryHousing, CategoryTransport, CategoryEntertainment, CategoryUtilities, CategoryPet, CategoryTravel, CategoryHealth, CategoryOther,
+		CategoryCasa, CategoryCarro, CategoryDog, CategoryMercado, CategoryViagem, CategoryLazer, CategorySaude, CategoryOutros,
+		"casa", "carro", "dog", "mercado", "viagem", "lazer", "saude", "outros":
 		return true
 	}
 	return false

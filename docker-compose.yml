@@ -1,17 +1,9 @@
 version: '3.8'
 
-services:
-  db:
-    image: postgres:15-alpine
-    container_name: finduo-db
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: finduo
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+# With SQLite, Finduo AI uses an embedded database stored in a local file (finduo.db).
+# No external database container (like PostgreSQL or MariaDB) is required to run in Docker.
+#
+# If you run the Go application inside a Docker container in the future,
+# mount a volume to persist the SQLite file (e.g., ./data:/app/data).
+services: {}
 
-volumes:
-  pgdata:

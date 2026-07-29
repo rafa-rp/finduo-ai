@@ -1,50 +1,117 @@
 'use client';
 
-import { useState } from 'react';
-import { MOCK_EXPENSES, MOCK_BALANCES, MOCK_SETTLEMENTS, MOCK_USERS } from '@/services/api';
-import { Expense } from '@/types';
+import { useState, useEffect, useCallback } from 'react';
+import { fetchUsers, saveUser, fetchSummary, createExpense, deleteExpense, toggleSettlement } from '@/services/api';
+import { User, MonthlySummary, Expense } from '@/types';
 
 export default function Home() {
-  const [expenses, setExpenses] = useState<Expense[]>(MOCK_EXPENSES);
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState('2026-07');
+  const [summary, setSummary] = useState<MonthlySummary | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Modals
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
+
+  // New Expense form state
   const [newDesc, setNewDesc] = useState('');
   const [newAmount, setNewAmount] = useState('');
-  const [newCategory, setNewCategory] = useState<Expense['category']>('food');
-  const [newPayer, setNewPayer] = useState('u1');
+  const [newCategory, setNewCategory] = useState<string>('food');
+  const [newPayerId, setNewPayerId] = useState('');
+  const [newIsShared, setNewIsShared] = useState(true);
 
-  // Calculate totals
-  const totalExpenses = expenses.reduce((acc, item) => acc + item.amount, 0);
-  const userBalance = MOCK_BALANCES.find((b) => b.userId === 'u1')?.amount || 0;
+  // New User form state
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserSalary, setNewUserSalary] = useState('');
 
-  const handleAddExpense = (e: React.FormEvent) => {
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [uData, sData] = await Promise.all([
+        fetchUsers(),
+        fetchSummary(currentMonth),
+      ]);
+      setUsers(uData);
+      setSummary(sData);
+      if (uData.length > 0 && !newPayerId) {
+        setNewPayerId(uData[0].id);
+      }
+    } catch (err: unknown) {
+      console.error(err);
+      setError('Não foi possível conectar ao backend Go. Verifique se a API está rodando na porta 8080.');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentMonth, newPayerId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDesc || !newAmount) return;
+    if (!newUserName) return;
 
-    const amountNum = parseFloat(newAmount);
-    const payerObj = MOCK_USERS.find((u) => u.id === newPayer);
-
-    const createdExpense: Expense = {
-      id: `e-${Date.now()}`,
-      description: newDesc,
-      amount: amountNum,
-      payerId: newPayer,
-      payerName: payerObj ? payerObj.name : 'Você',
-      category: newCategory,
-      date: new Date().toISOString().split('T')[0],
-      participants: MOCK_USERS.map((u) => ({
-        userId: u.id,
-        userName: u.name.split(' ')[0],
-        share: amountNum / MOCK_USERS.length,
-      })),
-    };
-
-    setExpenses([createdExpense, ...expenses]);
-    setNewDesc('');
-    setNewAmount('');
-    setShowAddModal(false);
+    try {
+      const salaryNum = parseFloat(newUserSalary) || 0;
+      await saveUser({ name: newUserName, salary: salaryNum });
+      setNewUserName('');
+      setNewUserSalary('');
+      setShowUserModal(false);
+      await loadData();
+    } catch (err) {
+      alert('Erro ao salvar participante: ' + err);
+    }
   };
 
-  const getCategoryBadge = (category: Expense['category']) => {
+  const handleAddExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDesc || !newAmount || !newPayerId) return;
+
+    try {
+      await createExpense({
+        description: newDesc,
+        amount: parseFloat(newAmount),
+        date: `${currentMonth}-15`, // Default to mid-month
+        category: newCategory,
+        payer_id: newPayerId,
+        is_shared: newIsShared,
+      });
+
+      setNewDesc('');
+      setNewAmount('');
+      setShowExpenseModal(false);
+      await loadData();
+    } catch (err) {
+      alert('Erro ao salvar despesa: ' + err);
+    }
+  };
+
+  const handleDeleteExpense = async (id: string) => {
+    if (!confirm('Deseja realmente remover esta despesa?')) return;
+    try {
+      await deleteExpense(id);
+      await loadData();
+    } catch (err) {
+      alert('Erro ao remover despesa: ' + err);
+    }
+  };
+
+  const handleToggleSettle = async () => {
+    if (!summary) return;
+    const [year, month] = currentMonth.split('-').map(Number);
+    try {
+      await toggleSettlement(year, month, !summary.is_settled);
+      await loadData();
+    } catch (err) {
+      alert('Erro ao atualizar status de quitação: ' + err);
+    }
+  };
+
+  const getCategoryBadge = (category: string) => {
     const categoriesMap: Record<string, { label: string; color: string }> = {
       food: { label: 'Alimentação', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
       housing: { label: 'Moradia', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
@@ -66,6 +133,11 @@ export default function Home() {
     );
   };
 
+  const getUserName = (id: string) => {
+    const u = users.find((item) => item.id === id);
+    return u ? u.name : 'Desconhecido';
+  };
+
   return (
     <div className="min-h-screen bg-[#0b0f19] text-slate-100 flex flex-col font-sans">
       {/* Header Navigation */}
@@ -79,19 +151,31 @@ export default function Home() {
               <span className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
                 finduo<span className="gradient-text-ai text-sm font-extrabold px-1.5 py-0.5 rounded bg-purple-950/50 border border-purple-800/40">AI</span>
               </span>
-              <p className="text-xs text-slate-400">Divisão de Contas Inteligente</p>
+              <p className="text-xs text-slate-400">Divisão de Contas Inteligente (SQLite)</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2 text-xs bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-full">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span className="text-slate-300">Backend Go: <span className="font-semibold text-emerald-400">Conectado (v1.26.2)</span></span>
+              <span className={`w-2 h-2 rounded-full ${error ? 'bg-rose-500 animate-ping' : 'bg-emerald-400 animate-pulse'}`}></span>
+              <span className="text-slate-300">Backend Go: <span className={`font-semibold ${error ? 'text-rose-400' : 'text-emerald-400'}`}>{error ? 'Offline' : 'Conectado'}</span></span>
             </div>
+
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={() => setShowUserModal(true)}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold px-3 py-2 rounded-lg border border-slate-700 transition-all text-xs flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+              Participantes ({users.length})
+            </button>
+
+            <button
+              onClick={() => setShowExpenseModal(true)}
+              disabled={users.length === 0}
               id="add-expense-header-btn"
-              className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-semibold px-4 py-2 rounded-lg shadow-md shadow-emerald-500/10 transition-all flex items-center gap-2 text-sm"
+              className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 disabled:opacity-50 text-slate-950 font-semibold px-4 py-2 rounded-lg shadow-md shadow-emerald-500/10 transition-all flex items-center gap-2 text-sm"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" />
@@ -102,217 +186,294 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Main Content Container */}
+      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full space-y-8">
+        {error && (
+          <div className="bg-rose-950/40 border border-rose-800/50 rounded-xl p-4 text-rose-300 text-sm flex items-center gap-3">
+            <svg className="w-6 h-6 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <p className="font-semibold">{error}</p>
+              <p className="text-xs text-rose-400/80 mt-0.5">Certifique-se de executar `go run main.go` no terminal.</p>
+            </div>
+          </div>
+        )}
 
-        {/* Welcome Section */}
+        {/* Month Selector Banner */}
         <section className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-purple-950/20 to-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl">
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              Olá, Rafael 👋
+              Divisão Proporcional de Despesas
             </h1>
             <p className="text-slate-400 text-sm mt-1">
-              Aqui está o resumo das finanças compartilhadas do grupo neste mês.
+              {users.length === 0
+                ? 'Cadastre os participantes e salários para calcular a divisão proporcional.'
+                : `Resumo financeiro calculado com base na renda dos ${users.length} participantes.`}
             </p>
           </div>
+
           <div className="flex items-center gap-3">
-            <span className="text-xs text-purple-300 bg-purple-900/40 border border-purple-700/50 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-              <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              RAG & Agentes Ativos
-            </span>
+            <label className="text-xs font-medium text-slate-400">Mês:</label>
+            <input
+              type="month"
+              value={currentMonth}
+              onChange={(e) => setCurrentMonth(e.target.value)}
+              className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+            />
           </div>
         </section>
 
-        {/* Metric Cards Grid */}
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {/* Card 1: Total em Despesas */}
-          <div className="glass-card glass-card-hover p-5 rounded-xl flex flex-col justify-between">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Total em Despesas</p>
-                <h2 className="text-2xl sm:text-3xl font-bold text-white mt-1">
-                  R$ {totalExpenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </h2>
-              </div>
-              <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-            </div>
-            <p className="text-xs text-slate-400 mt-4 flex items-center gap-1">
-              <span className="text-emerald-400 font-semibold">{expenses.length} transações</span> registradas no grupo
-            </p>
+        {loading ? (
+          <div className="py-16 text-center text-slate-400 text-sm animate-pulse">
+            Carregando dados do SQLite...
           </div>
-
-          {/* Card 2: Seu Saldo Atual */}
-          <div className="glass-card glass-card-hover p-5 rounded-xl flex flex-col justify-between">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Seu Saldo Líquido</p>
-                <h2 className={`text-2xl sm:text-3xl font-bold mt-1 ${userBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {userBalance >= 0 ? '+' : ''}R$ {userBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </h2>
-              </div>
-              <div className={`p-2.5 rounded-lg border ${userBalance >= 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 6l3 18h12l3-18H3z" />
-                </svg>
-              </div>
-            </div>
-            <p className="text-xs text-slate-400 mt-4">
-              {userBalance < 0 ? (
-                <span className="text-rose-400 font-medium">Você precisa pagar R$ {Math.abs(userBalance).toFixed(2)} para quitar</span>
-              ) : (
-                <span className="text-emerald-400 font-medium">Você tem a receber do grupo</span>
-              )}
-            </p>
-          </div>
-
-          {/* Card 3: AI Debt Optimizer */}
-          <div className="glass-card glass-card-hover p-5 rounded-xl flex flex-col justify-between border-purple-500/20">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-medium text-purple-300 uppercase tracking-wider flex items-center gap-1">
-                  AI Settlement Optimizer
+        ) : (
+          <>
+            {/* Metric Cards Grid */}
+            <section className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {/* Card 1: Total Compartilhado */}
+              <div className="glass-card p-5 rounded-xl flex flex-col justify-between">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Total em Despesas Compartilhadas</p>
+                    <h2 className="text-2xl sm:text-3xl font-bold text-white mt-1">
+                      R$ {(summary?.total_shared_expenses || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </h2>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mt-4">
+                  <span className="text-emerald-400 font-semibold">{summary?.expenses?.length || 0} despesas</span> salvas em {currentMonth}
                 </p>
-                <h2 className="text-2xl sm:text-3xl font-bold text-white mt-1">
-                  3 Transações
+              </div>
+
+              {/* Card 2: Acerto / Status das Dívidas */}
+              <div className="glass-card p-5 rounded-xl flex flex-col justify-between border-purple-500/20">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-xs font-medium text-purple-300 uppercase tracking-wider">Resultado da Divisão</p>
+                    <h2 className="text-lg font-bold text-emerald-400 mt-1">
+                      {summary?.settlement_message || 'Nenhuma pendência'}
+                    </h2>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between">
+                  <span className={`text-xs px-2.5 py-1 rounded-full border ${summary?.is_settled ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border-amber-500/30'}`}>
+                    {summary?.is_settled ? '✓ Mês Quitado' : 'Em Aberto'}
+                  </span>
+                  <button
+                    onClick={handleToggleSettle}
+                    className="text-xs text-purple-300 hover:text-purple-100 underline font-medium"
+                  >
+                    {summary?.is_settled ? 'Marcar em Aberto' : 'Marcar como Quitado'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 3: Participantes & Proporções */}
+              <div className="glass-card p-5 rounded-xl flex flex-col justify-between">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Proporções do Casal</p>
+                    <div className="mt-2 space-y-1">
+                      {summary?.users?.map((u) => (
+                        <div key={u.id} className="text-xs flex items-center justify-between gap-2">
+                          <span className="text-slate-300 font-medium">{u.name}:</span>
+                          <span className="text-purple-300 font-bold">{(u.proportion * 100).toFixed(1)}%</span>
+                        </div>
+                      ))}
+                      {(!summary?.users || summary.users.length === 0) && (
+                        <p className="text-xs text-slate-500 italic">Cadastre os participantes</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Participantes Breakdown Table */}
+            {summary?.users && summary.users.length > 0 && (
+              <section className="glass-card p-6 rounded-xl space-y-4">
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <svg className="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  Detalhamento por Participante (Proporcional à Renda)
+                </h2>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left text-slate-300">
+                    <thead className="bg-slate-900/80 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                      <tr>
+                        <th className="p-3">Nome</th>
+                        <th className="p-3">Salário / Renda</th>
+                        <th className="p-3">Proporção</th>
+                        <th className="p-3">Pago (Compartilhado)</th>
+                        <th className="p-3">Justo (Sua Cota)</th>
+                        <th className="p-3">Saldo Final</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {summary.users.map((u) => (
+                        <tr key={u.id} className="hover:bg-slate-900/40">
+                          <td className="p-3 font-semibold text-white">{u.name}</td>
+                          <td className="p-3">R$ {u.salary.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                          <td className="p-3 font-bold text-purple-300">{(u.proportion * 100).toFixed(1)}%</td>
+                          <td className="p-3">R$ {u.total_paid_shared.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                          <td className="p-3">R$ {u.fair_share.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                          <td className={`p-3 font-bold ${u.balance > 0 ? 'text-rose-400' : u.balance < 0 ? 'text-emerald-400' : 'text-slate-300'}`}>
+                            {u.balance > 0
+                              ? `Deve R$ ${u.balance.toFixed(2)}`
+                              : u.balance < 0
+                              ? `Recebe R$ ${Math.abs(u.balance).toFixed(2)}`
+                              : 'R$ 0,00 (Quittado)'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
+            {/* Expenses List Section */}
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  Despesas Registradas no SQLite ({summary?.expenses?.length || 0})
                 </h2>
               </div>
-              <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-            </div>
-            <p className="text-xs text-purple-300/80 mt-4">
-              Otimização de grafo ativada: <span className="text-purple-200 font-semibold">2 transferências economizadas</span>
-            </p>
-          </div>
-        </section>
 
-        {/* Detailed Sections: Left (Expenses) / Right (Settlements & AI Insights) */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* Left Column: Recent Expenses (2 cols wide on desktop) */}
-          <section className="lg:col-span-2 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                Despesas Recentes
-                <span className="text-xs font-normal bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full">
-                  {expenses.length}
-                </span>
-              </h2>
-            </div>
-
-            <div className="space-y-3">
-              {expenses.map((item) => (
-                <div key={item.id} className="glass-card glass-card-hover p-4 rounded-xl flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 font-bold text-sm">
-                      {item.payerName[0]}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-slate-100 text-sm">{item.description}</h3>
-                        {getCategoryBadge(item.category)}
+              {(!summary?.expenses || summary.expenses.length === 0) ? (
+                <div className="glass-card p-12 text-center rounded-xl space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto text-slate-500">
+                    💸
+                  </div>
+                  <p className="text-slate-300 font-medium">Nenhuma despesa cadastrada neste mês.</p>
+                  <p className="text-xs text-slate-500">Clique em "Nova Despesa" acima para adicionar a primeira despesa no seu banco de dados!</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {summary.expenses.map((item) => (
+                    <div key={item.id} className="glass-card p-4 rounded-xl flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 font-bold text-sm">
+                          {getUserName(item.payer_id)[0] || 'D'}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold text-slate-100 text-sm">{item.description}</h3>
+                            {getCategoryBadge(item.category)}
+                            {!item.is_shared && (
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                Individual
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-400 mt-1">
+                            Pago por <span className="text-slate-200 font-medium">{getUserName(item.payer_id)}</span> em {item.date}
+                          </p>
+                        </div>
                       </div>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Pago por <span className="text-slate-200 font-medium">{item.payerName}</span> em {item.date}
-                      </p>
+
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <span className="text-base font-bold text-white">
+                            R$ {item.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={() => handleDeleteExpense(item.id)}
+                          className="text-slate-500 hover:text-rose-400 p-1 transition-colors"
+                          title="Remover despesa"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="text-base font-bold text-white">
-                      R$ {item.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </span>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      R$ {(item.amount / item.participants.length).toFixed(2)} / pessoa
-                    </p>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Right Column: Debt Settlements & AI Suggestions */}
-          <section className="space-y-6">
-            
-            {/* Optimized Debt Settlements Card */}
-            <div className="glass-card p-5 rounded-xl space-y-4">
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                </svg>
-                Acertos de Contas Sugeridos
-              </h2>
-
-              <div className="space-y-3">
-                {MOCK_SETTLEMENTS.map((s) => (
-                  <div key={s.id} className="p-3 rounded-lg bg-slate-900/60 border border-slate-800/80 flex items-center justify-between text-xs">
-                    <div>
-                      <p className="text-slate-300">
-                        <span className="font-semibold text-rose-400">{s.fromUserName}</span> paga a{' '}
-                        <span className="font-semibold text-emerald-400">{s.toUserName}</span>
-                      </p>
-                    </div>
-                    <span className="font-bold text-white bg-slate-800 px-2.5 py-1 rounded border border-slate-700">
-                      R$ {s.amount.toFixed(2)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <button 
-                id="settle-up-btn"
-                className="w-full text-xs font-semibold py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 transition-all text-center"
-              >
-                Registrar Quitação de Dívida
-              </button>
-            </div>
-
-            {/* AI Insights Widget */}
-            <div className="p-5 rounded-xl bg-gradient-to-br from-purple-950/40 via-slate-900 to-indigo-950/30 border border-purple-800/40 shadow-lg space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-md bg-purple-500/20 text-purple-300">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                  </svg>
-                </div>
-                <h3 className="text-sm font-bold gradient-text-ai">Finduo AI Insights</h3>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Detectamos que <span className="text-purple-300 font-medium">Rafael</span> e <span className="text-purple-300 font-medium">Ana Silva</span> concentram 85% dos pagamentos do grupo neste mês. O fechamento otimizado reduz 2 transferências intermediárias via Pix.
-              </p>
-            </div>
-
-          </section>
-        </div>
+              )}
+            </section>
+          </>
+        )}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-900 bg-[#080c14] py-6 mt-12 text-xs text-slate-500 text-center">
-        <div className="max-w-7xl mx-auto px-4">
-          <p>© 2026 Finduo AI — Built with Next.js, React & Go 1.26.2</p>
-        </div>
-      </footer>
-
-      {/* Add Expense Modal */}
-      {showAddModal && (
+      {/* Modal: Adicionar Participante */}
+      {showUserModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#111827] border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-[#111827] border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-white">Cadastrar Participante</h3>
+              <button onClick={() => setShowUserModal(false)} className="text-slate-400 hover:text-white">✕</button>
+            </div>
+
+            <form onSubmit={handleAddUser} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Nome</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Rafael"
+                  value={newUserName}
+                  onChange={(e) => setNewUserName(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Salário / Renda Mensal (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Ex: 5000.00"
+                  value={newUserSalary}
+                  onChange={(e) => setNewUserSalary(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  required
+                />
+                <p className="text-[11px] text-slate-400 mt-1">Usado para calcular a proporção da divisão de contas.</p>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowUserModal(false)}
+                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-bold"
+                >
+                  Salvar Participante
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Adicionar Despesa */}
+      {showExpenseModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#111827] border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-white">Adicionar Nova Despesa</h3>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="text-slate-400 hover:text-white p-1"
-              >
-                ✕
-              </button>
+              <button onClick={() => setShowExpenseModal(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
             <form onSubmit={handleAddExpense} className="space-y-4">
@@ -320,7 +481,7 @@ export default function Home() {
                 <label className="block text-xs font-medium text-slate-300 mb-1">Descrição</label>
                 <input
                   type="text"
-                  placeholder="Ex: Jantar de Sexta"
+                  placeholder="Ex: Supermercado"
                   value={newDesc}
                   onChange={(e) => setNewDesc(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
@@ -345,7 +506,7 @@ export default function Home() {
                   <label className="block text-xs font-medium text-slate-300 mb-1">Categoria</label>
                   <select
                     value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value as Expense['category'])}
+                    onChange={(e) => setNewCategory(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
                   >
                     <option value="food">Alimentação / Mercado (food)</option>
@@ -362,24 +523,38 @@ export default function Home() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Quem pagou?</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Quem Pagou?</label>
                 <select
-                  value={newPayer}
-                  onChange={(e) => setNewPayer(e.target.value)}
+                  value={newPayerId}
+                  onChange={(e) => setNewPayerId(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  required
                 >
-                  {MOCK_USERS.map((u) => (
+                  {users.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.name}
+                      {u.name} (R$ {u.salary.toFixed(2)})
                     </option>
                   ))}
                 </select>
               </div>
 
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="is_shared"
+                  checked={newIsShared}
+                  onChange={(e) => setNewIsShared(e.target.checked)}
+                  className="rounded border-slate-700 text-emerald-500 focus:ring-0 bg-slate-900"
+                />
+                <label htmlFor="is_shared" className="text-xs text-slate-300">
+                  Despesa compartilhada pelo casal (proporcional à renda)
+                </label>
+              </div>
+
               <div className="pt-2 flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => setShowExpenseModal(false)}
                   className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
                 >
                   Cancelar

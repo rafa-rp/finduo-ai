@@ -1,37 +1,37 @@
 export interface User {
   id: string;
   name: string;
-  avatar?: string;
-}
-
-export interface ExpenseParticipant {
-  userId: string;
-  userName: string;
-  share: number;
+  salary: number;
 }
 
 export interface Expense {
   id: string;
   description: string;
   amount: number;
-  payerId: string;
-  payerName: string;
-  category: 'food' | 'housing' | 'transport' | 'entertainment' | 'utilities' | 'other';
   date: string;
-  participants: ExpenseParticipant[];
+  category: 'food' | 'housing' | 'transport' | 'entertainment' | 'utilities' | 'other' | string;
+  payer_id: string;
+  is_shared: boolean;
 }
 
-export interface Balance {
-  userId: string;
-  userName: string;
-  amount: number; // positive = to receive, negative = owes
-}
-
-export interface DebtSettlement {
+export interface UserSummary {
   id: string;
-  fromUserId: string;
-  fromUserName: string;
-  toUserId: string;
-  toUserName: string;
-  amount: number;
+  name: string;
+  salary: number;
+  proportion: number;
+  total_paid_shared: number;
+  total_paid_individual: number;
+  fair_share: number;
+  balance: number;
+}
+
+export interface MonthlySummary {
+  month: string;
+  is_settled: boolean;
+  settled_by_id?: string | null;
+  total_shared_expenses: number;
+  settlement_message: string;
+  users: UserSummary[];
+  category_breakdown: Record<string, number>;
+  expenses: Expense[];
 }

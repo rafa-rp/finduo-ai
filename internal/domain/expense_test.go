@@ -6,14 +6,17 @@ import (
 
 func TestIsValidCategory(t *testing.T) {
 	validCategories := []string{
+		CategoryFood,
+		CategoryHousing,
+		CategoryTransport,
+		CategoryEntertainment,
+		CategoryUtilities,
+		CategoryPet,
+		CategoryTravel,
+		CategoryHealth,
+		CategoryOther,
 		CategoryCasa,
 		CategoryCarro,
-		CategoryDog,
-		CategoryMercado,
-		CategoryViagem,
-		CategoryLazer,
-		CategorySaude,
-		CategoryOutros,
 	}
 
 	for _, cat := range validCategories {
@@ -25,8 +28,7 @@ func TestIsValidCategory(t *testing.T) {
 	invalidCategories := []string{
 		"",
 		"Invalid",
-		"casa",
-		"MERCADO",
+		"UnknownCategory",
 		" Random ",
 	}
 
